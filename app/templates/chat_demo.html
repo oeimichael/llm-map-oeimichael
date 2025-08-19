@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Maps Chat</title>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @keyframes typing {
+            0%, 60%, 100% {
+                transform: translateY(0);
+                opacity: 0.5;
+            }
+            30% {
+                transform: translateY(-6px);
+                opacity: 1;
+            }
+        }
+        
+        .typing-dot {
+            animation: typing 1.4s infinite;
+        }
+        
+        .typing-dot:nth-child(2) {
+            animation-delay: 0.2s;
+        }
+        
+        .typing-dot:nth-child(3) {
+            animation-delay: 0.4s;
+        }
+        
+        [x-cloak] {
+            display: none !important;
+        }
+        
+        /* Custom dark theme colors */
+        .bg-dark-bg { background-color: #0f0f23; }
+        .bg-dark-surface { background-color: #1a1a2e; }
+        .bg-dark-surface-2 { background-color: #16213e; }
+        .border-dark-border { border-color: #2a2a3e; }
+        .bg-dark-input { background-color: #2d2d44; }
+    </style>
+</head>
+<body class="bg-dark-bg text-gray-200 h-screen overflow-hidden">
+    <div class="flex h-screen" 
+         x-data="chatApp()" 
+         x-init="initializeApp()"
+         x-cloak>
+        
+        <!-- Chat Panel -->
+        <div class="flex flex-col flex-1 bg-dark-surface lg:max-w-4xl mx-auto lg:m-2 lg:rounded-xl overflow-hidden">
+            <!-- Header -->
+            <div class="bg-dark-surface-2 px-4 py-4 lg:px-6 lg:py-5 border-b border-dark-border">
+                <div class="text-center">
+                    <h1 class="text-xl lg:text-2xl font-semibold text-blue-400 mb-2">🗺️ LLM Maps Chat</h1>
+                    <p class="text-sm lg:text-base text-gray-400">Ask me to find places, restaurants, or directions anywhere in the world!</p>
+                </div>
+            </div>
+            
+            <!-- Messages Container -->
+            <div class="flex-1 overflow-y-auto p-4 lg:p-6 space-y-4" x-ref="messagesContainer">
+                <!-- Welcome Message -->
+                <div class="flex gap-3 lg:gap-4">
+                    <div class="w-8 h-8 lg:w-10 lg:h-10 rounded-full bg-green-500 flex items-center justify-center text-white font-bold text-sm lg:text-base flex-shrink-0">
+                        🤖
+                    </div>
+                    <div class="flex-1 bg-gray-700 rounded-lg lg:rounded-xl p-3 lg:p-4 max-w-none lg:max-w-4xl">
+                        <p class="text-sm lg:text-base mb-3">Hello! I'm your AI maps assistant. I can help you find places, get directions, and explore locations around the world.</p>
+                        <p class="text-sm lg:text-base mb-3">Try asking me something like:</p>
+                        <ul class="text-xs lg:text-sm space-y-1 pl-4 list-disc text-gray-300">
+                            <li>"Find me a good coffee shop near Times Square"</li>
+                            <li>"Show me Italian restaurants in Paris"</li>
+                            <li>"Where can I get sushi in Tokyo?"</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <!-- Chat Messages -->
+                <template x-for="(message, index) in messages" :key="index">
+                    <div :class="'flex gap-3 lg:gap-4 ' + (message.type === 'user' ? 'flex-row-reverse' : '')">
+                        <div :class="'w-8 h-8 lg:w-10 lg:h-10 rounded-full flex items-center justify-center text-white font-bold text-sm lg:text-base flex-shrink-0 ' + (message.type === 'user' ? 'bg-blue-500' : 'bg-green-500')" 
+                             x-text="message.type === 'user' ? '👤' : '🤖'">
+                        </div>
+                        <div :class="'flex-1 rounded-lg lg:rounded-xl p-3 lg:p-4 max-w-none lg:max-w-4xl ' + (message.type === 'user' ? 'bg-blue-600 text-white ml-auto' : 'bg-gray-700')">
+                            <div x-html="message.content" class="text-sm lg:text-base"></div>
+                            
+                            <!-- Location Results -->
+                            <div x-show="message.locations && message.locations.length > 0" class="mt-4 space-y-3">
+                                <template x-for="(location, locIndex) in message.locations" :key="location.place_id">
+                                    <div class="bg-gray-800 border border-gray-600 rounded-lg p-3 lg:p-4 cursor-pointer hover:bg-gray-600 hover:border-blue-400 transition-all duration-200" 
+                                         @click="focusOnLocation(location, locIndex)">
+                                        <div class="font-medium text-white text-sm lg:text-base mb-2" x-text="location.name"></div>
+                                        <div class="text-xs lg:text-sm text-gray-300 space-y-1">
+                                            <div class="flex items-start gap-1">
+                                                <span>📍</span>
+                                                <span x-text="location.address" class="flex-1"></span>
+                                            </div>
+                                            <div class="flex flex-wrap gap-3 lg:gap-4">
+                                                <span x-show="location.rating" class="text-yellow-400 flex items-center gap-1">
+                                                    <span>⭐</span>
+                                                    <span x-text="location.rating"></span>
+                                                </span>
+                                                <span x-show="location.distance" class="text-blue-400 flex items-center gap-1">
+                                                    <span>📏</span>
+                                                    <span x-text="formatDistance(location.distance)"></span>
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <div class="flex flex-wrap gap-2 mt-3" @click.stop>
+                                            <button x-show="userLocation" 
+                                                    class="px-3 py-1 lg:px-4 lg:py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs lg:text-sm font-medium transition-colors disabled:opacity-50"
+                                                    @click="getDirections(location.place_id, locIndex)"
+                                                    :disabled="isLoadingDirections">
+                                                🧭 Directions
+                                            </button>
+                                            <a :href="location.maps_url" 
+                                               target="_blank" 
+                                               class="px-3 py-1 lg:px-4 lg:py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-md text-xs lg:text-sm font-medium transition-colors">
+                                                🗺️ Open in Maps
+                                            </a>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                            
+                            <!-- Status Messages -->
+                            <div x-show="message.status" 
+                                 :class="'mt-3 p-2 lg:p-3 rounded-md border-l-4 text-xs lg:text-sm ' + 
+                                        (message.statusType === 'success' ? 'bg-green-900 border-green-500 text-green-200' : 
+                                         message.statusType === 'error' ? 'bg-red-900 border-red-500 text-red-200' : 
+                                         'bg-blue-900 border-blue-500 text-blue-200')"
+                                 x-text="message.status">
+                            </div>
+                        </div>
+                    </div>
+                </template>
+                
+                <!-- Typing Indicator -->
+                <div x-show="isTyping" class="flex gap-3 lg:gap-4">
+                    <div class="w-8 h-8 lg:w-10 lg:h-10 rounded-full bg-green-500 flex items-center justify-center text-white font-bold text-sm lg:text-base flex-shrink-0">
+                        🤖
+                    </div>
+                    <div class="bg-gray-700 rounded-lg lg:rounded-xl p-3 lg:p-4 max-w-xs">
+                        <div class="flex items-center gap-2 text-sm lg:text-base text-gray-300">
+                            <span>AI is thinking</span>
+                            <div class="flex gap-1">
+                                <div class="w-1 h-1 bg-gray-400 rounded-full typing-dot"></div>
+                                <div class="w-1 h-1 bg-gray-400 rounded-full typing-dot"></div>
+                                <div class="w-1 h-1 bg-gray-400 rounded-full typing-dot"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Input Area -->
+            <div class="bg-dark-surface-2 border-t border-dark-border p-4 lg:p-6">
+                <form @submit.prevent="sendMessage()" class="flex gap-3 lg:gap-4 items-end">
+                    <div class="flex-1">
+                        <textarea 
+                            x-model="currentMessage"
+                            class="w-full bg-dark-input border border-gray-600 rounded-lg lg:rounded-xl px-3 py-2 lg:px-4 lg:py-3 text-gray-100 text-sm lg:text-base placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-none"
+                            placeholder="Ask me to find a place..."
+                            rows="1"
+                            :disabled="isTyping"
+                            @keydown.enter.prevent="if (!$event.shiftKey) sendMessage()"
+                            @input="autoResize($event)"
+                        ></textarea>
+                    </div>
+                    <button type="submit" 
+                            class="px-4 py-2 lg:px-6 lg:py-3 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 text-white rounded-lg lg:rounded-xl font-medium text-sm lg:text-base transition-colors flex items-center gap-2"
+                            :disabled="isTyping || !currentMessage.trim()">
+                        <span x-show="!isTyping">Send</span>
+                        <span x-show="isTyping">...</span>
+                    </button>
+                </form>
+            </div>
+        </div>
+        
+        <!-- Map Panel - Hidden on mobile, shown on desktop -->
+        <div class="hidden lg:flex lg:w-96 xl:w-[28rem] bg-dark-surface border-l border-dark-border flex-col">
+            <!-- Map Header -->
+            <div class="bg-dark-surface-2 p-4 border-b border-dark-border">
+                <h3 class="text-lg font-medium text-white mb-3">Interactive Map</h3>
+                <div class="flex gap-2">
+                    <button 
+                        :class="'px-3 py-1 text-xs font-medium rounded-md transition-colors ' + (travelMode === 'DRIVING' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600')"
+                        @click="travelMode = 'DRIVING'">
+                        🚗 Drive
+                    </button>
+                    <button 
+                        :class="'px-3 py-1 text-xs font-medium rounded-md transition-colors ' + (travelMode === 'WALKING' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600')"
+                        @click="travelMode = 'WALKING'">
+                        🚶 Walk
+                    </button>
+                    <button 
+                        :class="'px-3 py-1 text-xs font-medium rounded-md transition-colors ' + (travelMode === 'TRANSIT' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600')"
+                        @click="travelMode = 'TRANSIT'">
+                        🚇 Transit
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Map Content -->
+            <div class="flex-1 relative">
+                <button class="absolute top-3 right-3 z-10 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition-colors" 
+                        @click="getUserLocation()"
+                        :disabled="isLoadingLocation">
+                    <span x-show="!isLoadingLocation">📍 My Location</span>
+                    <span x-show="isLoadingLocation">⏳ Getting...</span>
+                </button>
+                <div id="persistent-map" class="w-full h-full"></div>
+            </div>
+        </div>
+        
+        <!-- Mobile Map Modal -->
+        <div x-show="showMobileMap" 
+             class="lg:hidden fixed inset-0 bg-black bg-opacity-75 z-50 flex items-center justify-center p-4"
+             @click.self="showMobileMap = false">
+            <div class="bg-dark-surface rounded-xl w-full max-w-lg h-96 flex flex-col">
+                <div class="flex items-center justify-between p-4 border-b border-dark-border">
+                    <h3 class="text-lg font-medium text-white">Map View</h3>
+                    <button @click="showMobileMap = false" class="text-gray-400 hover:text-white">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                </div>
+                <div class="flex-1 relative">
+                    <div id="mobile-map" class="w-full h-full rounded-b-xl"></div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Mobile Map Toggle Button -->
+        <button class="lg:hidden fixed bottom-4 right-4 w-12 h-12 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg flex items-center justify-center z-40"
+                @click="showMobileMap = true">
+            🗺️
+        </button>
+    </div>
+
+    <script>
+        function chatApp() {
+            return {
+                // Chat state
+                messages: [],
+                currentMessage: '',
+                isTyping: false,
+                isLoadingLocation: false,
+                isLoadingDirections: false,
+                showMobileMap: false,
+                
+                // Map state
+                map: null,
+                mobileMap: null,
+                markers: [],
+                directionsService: null,
+                directionsRenderer: null,
+                userLocation: null,
+                travelMode: 'DRIVING',
+                
+                // Initialize the application
+                async initializeApp() {
+                    await this.initializeMap();
+                    this.getUserLocation();
+                },
+                
+                // Initialize Google Maps
+                async initializeMap() {
+                    // Wait for Google Maps to load
+                    if (typeof google === 'undefined' || !google.maps || !google.maps.Map) {
+                        await this.waitForGoogleMaps();
+                    }
+                    
+                    const defaultCenter = { lat: 37.7749, lng: -122.4194 };
+                    const mapStyles = [
+                        {
+                            "featureType": "all",
+                            "elementType": "geometry.fill",
+                            "stylers": [{"color": "#2d3748"}]
+                        },
+                        {
+                            "featureType": "all",
+                            "elementType": "labels.text.fill",
+                            "stylers": [{"color": "#ffffff"}]
+                        },
+                        {
+                            "featureType": "all",
+                            "elementType": "labels.text.stroke",
+                            "stylers": [{"color": "#2d3748"}, {"weight": 1}]
+                        },
+                        {
+                            "featureType": "water",
+                            "elementType": "geometry.fill",
+                            "stylers": [{"color": "#1a365d"}]
+                        },
+                        {
+                            "featureType": "road",
+                            "elementType": "geometry.fill",
+                            "stylers": [{"color": "#4a5568"}]
+                        },
+                        {
+                            "featureType": "road",
+                            "elementType": "geometry.stroke",
+                            "stylers": [{"color": "#2d3748"}]
+                        },
+                        {
+                            "featureType": "poi",
+                            "elementType": "geometry.fill",
+                            "stylers": [{"color": "#3c4257"}]
+                        },
+                        {
+                            "featureType": "administrative",
+                            "elementType": "geometry.stroke",
+                            "stylers": [{"color": "#718096"}]
+                        }
+                    ];
+                    
+                    // Desktop map
+                    this.map = new google.maps.Map(document.getElementById('persistent-map'), {
+                        zoom: 12,
+                        center: defaultCenter,
+                        styles: mapStyles
+                    });
+                    
+                    this.directionsService = new google.maps.DirectionsService();
+                    this.directionsRenderer = new google.maps.DirectionsRenderer({
+                        draggable: false,
+                        suppressMarkers: false,
+                        preserveViewport: false
+                    });
+                    this.directionsRenderer.setMap(this.map);
+                },
+                
+                // Wait for Google Maps to load
+                waitForGoogleMaps() {
+                    return new Promise((resolve) => {
+                        const checkGoogleMaps = () => {
+                            if (window.googleMapsLoaded && typeof google !== 'undefined' && google.maps && google.maps.Map) {
+                                resolve();
+                            } else {
+                                setTimeout(checkGoogleMaps, 100);
+                            }
+                        };
+                        checkGoogleMaps();
+                    });
+                },
+                
+                // Send message to chat
+                async sendMessage() {
+                    if (!this.currentMessage.trim() || this.isTyping) return;
+                    
+                    const userMessage = this.currentMessage.trim();
+                    this.currentMessage = '';
+                    
+                    // Add user message
+                    this.messages.push({
+                        type: 'user',
+                        content: userMessage,
+                        timestamp: new Date()
+                    });
+                    
+                    this.isTyping = true;
+                    this.scrollToBottom();
+                    
+                    try {
+                        const response = await fetch('/search', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                query: userMessage,
+                                user_location: this.userLocation
+                            })
+                        });
+                        
+                        const data = await response.json();
+                        
+                        if (data.success) {
+                            // Add AI response with locations
+                            const aiMessage = {
+                                type: 'assistant',
+                                content: `I found ${data.locations.length} location(s) for "${data.extracted_info?.search_term || userMessage}":`,
+                                locations: data.locations,
+                                timestamp: new Date(),
+                                status: `Found ${data.locations.length} results`,
+                                statusType: 'success'
+                            };
+                            
+                            this.messages.push(aiMessage);
+                            this.displayLocationsOnMap(data.locations, data.map_center);
+                        } else {
+                            this.messages.push({
+                                type: 'assistant',
+                                content: "I'm sorry, I couldn't find any locations for your query. Could you try rephrasing or being more specific?",
+                                timestamp: new Date(),
+                                status: data.message,
+                                statusType: 'error'
+                            });
+                        }
+                    } catch (error) {
+                        this.messages.push({
+                            type: 'assistant',
+                            content: "I'm sorry, I encountered an error while searching. Please try again.",
+                            timestamp: new Date(),
+                            status: error.message,
+                            statusType: 'error'
+                        });
+                    } finally {
+                        this.isTyping = false;
+                        this.scrollToBottom();
+                    }
+                },
+                
+                // Display locations on map
+                displayLocationsOnMap(locations, mapCenter) {
+                    this.clearMarkers();
+                    
+                    if (mapCenter) {
+                        this.map.setCenter(mapCenter);
+                        this.map.setZoom(13);
+                    }
+                    
+                    locations.forEach((location, index) => {
+                        const marker = new google.maps.Marker({
+                            position: { lat: location.lat, lng: location.lng },
+                            map: this.map,
+                            title: location.name,
+                            label: {
+                                text: String(index + 1),
+                                color: 'white',
+                                fontWeight: 'bold',
+                                fontSize: '14px'
+                            },
+                            icon: {
+                                path: google.maps.SymbolPath.CIRCLE,
+                                scale: 18,
+                                fillColor: '#3b82f6',
+                                fillOpacity: 1,
+                                strokeColor: '#1e40af',
+                                strokeWeight: 3
+                            }
+                        });
+                        
+                        const infoWindow = new google.maps.InfoWindow({
+                            content: `
+                                <div style="max-width: 250px; color: #333;">
+                                    <h3 style="margin: 0 0 8px 0;">${location.name}</h3>
+                                    <p style="margin: 0 0 4px 0; font-size: 0.9rem;">${location.address}</p>
+                                    ${location.rating ? `<p style="margin: 0; font-size: 0.9rem;">⭐ ${location.rating}</p>` : ''}
+                                </div>
+                            `
+                        });
+                        
+                        marker.addListener('click', () => {
+                            infoWindow.open(this.map, marker);
+                        });
+                        
+                        this.markers.push(marker);
+                    });
+                },
+                
+                // Focus on a specific location
+                focusOnLocation(location, index) {
+                    if (this.markers[index]) {
+                        this.map.setCenter({ lat: location.lat, lng: location.lng });
+                        this.map.setZoom(16);
+                        google.maps.event.trigger(this.markers[index], 'click');
+                    }
+                },
+                
+                // Get user location
+                async getUserLocation() {
+                    if (!navigator.geolocation) return;
+                    
+                    this.isLoadingLocation = true;
+                    
+                    try {
+                        const position = await new Promise((resolve, reject) => {
+                            navigator.geolocation.getCurrentPosition(resolve, reject, {
+                                enableHighAccuracy: true,
+                                timeout: 10000,
+                                maximumAge: 300000
+                            });
+                        });
+                        
+                        this.userLocation = {
+                            lat: position.coords.latitude,
+                            lng: position.coords.longitude
+                        };
+                        
+                        this.map.setCenter(this.userLocation);
+                        this.map.setZoom(14);
+                        
+                        // Add user location marker
+                        new google.maps.Marker({
+                            position: this.userLocation,
+                            map: this.map,
+                            title: 'Your Location',
+                            icon: {
+                                path: google.maps.SymbolPath.CIRCLE,
+                                scale: 10,
+                                fillColor: '#10b981',
+                                fillOpacity: 1,
+                                strokeColor: '#065f46',
+                                strokeWeight: 3
+                            }
+                        });
+                        
+                    } catch (error) {
+                        console.error('Error getting location:', error);
+                    } finally {
+                        this.isLoadingLocation = false;
+                    }
+                },
+                
+                // Get directions
+                async getDirections(placeId, locationIndex) {
+                    if (!this.userLocation) {
+                        this.addSystemMessage('Please allow location access for directions', 'error');
+                        return;
+                    }
+                    
+                    this.isLoadingDirections = true;
+                    
+                    try {
+                        const response = await fetch('/directions', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                origin: this.userLocation,
+                                destination: `place_id:${placeId}`,
+                                travel_mode: this.travelMode
+                            })
+                        });
+                        
+                        const data = await response.json();
+                        
+                        if (data.success && data.routes) {
+                            const directionsResult = {
+                                routes: data.routes,
+                                request: {
+                                    origin: new google.maps.LatLng(this.userLocation.lat, this.userLocation.lng),
+                                    destination: `place_id:${placeId}`,
+                                    travelMode: google.maps.TravelMode[this.travelMode]
+                                },
+                                status: google.maps.DirectionsStatus.OK
+                            };
+                            
+                            this.directionsRenderer.setDirections(directionsResult);
+                            
+                            this.addSystemMessage(`Directions: ${data.duration} (${data.distance})`, 'success');
+                        } else {
+                            this.addSystemMessage(data.message || 'Could not get directions', 'error');
+                        }
+                    } catch (error) {
+                        this.addSystemMessage('Error getting directions', 'error');
+                    } finally {
+                        this.isLoadingDirections = false;
+                    }
+                },
+                
+                // Add system message
+                addSystemMessage(message, type = 'info') {
+                    this.messages.push({
+                        type: 'assistant',
+                        content: message,
+                        timestamp: new Date(),
+                        statusType: type
+                    });
+                    this.scrollToBottom();
+                },
+                
+                // Clear map markers
+                clearMarkers() {
+                    this.markers.forEach(marker => marker.setMap(null));
+                    this.markers = [];
+                    if (this.directionsRenderer) {
+                        this.directionsRenderer.set('directions', null);
+                    }
+                },
+                
+                // Format distance
+                formatDistance(distance) {
+                    if (!distance) return '';
+                    const km = distance / 1000;
+                    return km < 1 ? `${Math.round(distance)}m` : `${km.toFixed(1)}km`;
+                },
+                
+                // Auto resize textarea
+                autoResize(event) {
+                    const textarea = event.target;
+                    textarea.style.height = 'auto';
+                    textarea.style.height = Math.min(textarea.scrollHeight, 120) + 'px';
+                },
+                
+                // Scroll to bottom of messages
+                scrollToBottom() {
+                    this.$nextTick(() => {
+                        const container = this.$refs.messagesContainer;
+                        container.scrollTop = container.scrollHeight;
+                    });
+                }
+            }
+        }
+    </script>
+    
+    <script async defer src="https://maps.googleapis.com/maps/api/js?key={{GOOGLE_MAPS_JS_API_KEY}}&callback=initGoogleMaps&libraries=geometry&loading=async"></script>
+    
+    <script>
+        function initGoogleMaps() {
+            window.googleMapsLoaded = true;
+        }
+    </script>
+</body>
+</html>
